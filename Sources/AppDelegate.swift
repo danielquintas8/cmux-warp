@@ -9636,17 +9636,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Code Review: Cmd+Shift+G
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showCodeReview)) {
-            if let workspace = tabManager?.selectedWorkspace,
-               let focusedPanelId = workspace.focusedPanelId {
-                let gitDirectory = workspace.panelDirectories[focusedPanelId] ?? workspace.currentDirectory
-                _ = workspace.newCodeReviewSplit(
-                    from: focusedPanelId,
-                    orientation: .horizontal,
-                    gitDirectory: gitDirectory
-                )
-            } else {
-                NSSound.beep()
-            }
+            openCodeReviewPanel()
             return true
         }
 
@@ -9882,6 +9872,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         focusBrowserAddressBar(in: panel)
         return true
+    }
+
+    // MARK: - Code Review
+
+    @objc func codeReviewTitlebarButtonClicked() {
+        openCodeReviewPanel()
+    }
+
+    private func openCodeReviewPanel() {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId else {
+            NSSound.beep()
+            return
+        }
+        let gitDirectory = workspace.panelDirectories[focusedPanelId] ?? workspace.currentDirectory
+        _ = workspace.newCodeReviewSplit(
+            from: focusedPanelId,
+            orientation: .horizontal,
+            gitDirectory: gitDirectory
+        )
     }
 
     @discardableResult
