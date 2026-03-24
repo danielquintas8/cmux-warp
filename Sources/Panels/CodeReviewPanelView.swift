@@ -212,6 +212,7 @@ struct CodeReviewPanelView: View {
                         }
                         .padding(16)
                     }
+                    .id(panel.selectedFilePath ?? "__all__")
                 } else {
                     emptyStateView
                 }
