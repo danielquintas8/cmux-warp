@@ -4993,6 +4993,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .codeReview:
+            return String(localized: "commandPalette.kind.codeReview", defaultValue: "Code Review")
         }
     }
 
@@ -5004,6 +5006,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .codeReview:
+            return ["git", "diff", "review", "changes"]
         }
     }
 
@@ -5101,6 +5105,8 @@ struct ContentView: View {
             return .newSurface
         case "palette.newBrowserTab":
             return .openBrowser
+        case "palette.showCodeReview":
+            return .showCodeReview
         case "palette.closeWindow":
             return .closeWindow
         case "palette.toggleSidebar":
@@ -5339,6 +5345,15 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.showCodeReview",
+                title: constant(String(localized: "command.showCodeReview.title", defaultValue: "Code Review")),
+                subtitle: constant(String(localized: "command.showCodeReview.subtitle", defaultValue: "Git Diff")),
+                shortcutHint: "⌘⇧G",
+                keywords: ["git", "diff", "review", "changes", "code"]
             )
         )
         contributions.append(
@@ -5998,6 +6013,28 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
             }
+        }
+        registry.register(commandId: "palette.showCodeReview") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            let gitDirectory: String
+            if let focusedPanelId = workspace.focusedPanelId,
+               let dir = workspace.panelDirectories[focusedPanelId] {
+                gitDirectory = dir
+            } else {
+                gitDirectory = workspace.currentDirectory
+            }
+            guard let focusedPanelId = workspace.focusedPanelId else {
+                NSSound.beep()
+                return
+            }
+            _ = workspace.newCodeReviewSplit(
+                from: focusedPanelId,
+                orientation: .horizontal,
+                gitDirectory: gitDirectory
+            )
         }
         registry.register(commandId: "palette.closeTab") {
             tabManager.closeCurrentPanelWithConfirmation()

@@ -9634,6 +9634,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Code Review: Cmd+Shift+G
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showCodeReview)) {
+            if let workspace = tabManager?.selectedWorkspace,
+               let focusedPanelId = workspace.focusedPanelId {
+                let gitDirectory = workspace.panelDirectories[focusedPanelId] ?? workspace.currentDirectory
+                _ = workspace.newCodeReviewSplit(
+                    from: focusedPanelId,
+                    orientation: .horizontal,
+                    gitDirectory: gitDirectory
+                )
+            } else {
+                NSSound.beep()
+            }
+            return true
+        }
+
         // Safari defaults:
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console
