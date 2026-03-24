@@ -9880,12 +9880,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         openCodeReviewPanel()
     }
 
-    private func openCodeReviewPanel() {
+    func openCodeReviewPanel() {
         guard let workspace = tabManager?.selectedWorkspace,
               let focusedPanelId = workspace.focusedPanelId else {
             NSSound.beep()
             return
         }
+
+        // Toggle: if a code review panel exists, close it
+        if let existingId = workspace.panels.first(where: { $0.value is CodeReviewPanel })?.key {
+            _ = workspace.closePanel(existingId)
+            return
+        }
+
         let gitDirectory = workspace.panelDirectories[focusedPanelId] ?? workspace.currentDirectory
         _ = workspace.newCodeReviewSplit(
             from: focusedPanelId,

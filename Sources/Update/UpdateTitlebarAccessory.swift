@@ -1338,7 +1338,8 @@ final class UpdateTitlebarAccessoryController {
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
-            window.titlebarAccessoryViewControllers[index].view.identifier == controlsIdentifier
+            let id = window.titlebarAccessoryViewControllers[index].view.identifier
+            return id == controlsIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 

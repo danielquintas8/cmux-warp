@@ -2475,6 +2475,19 @@ struct ContentView: View {
 
                 Spacer()
 
+                Button {
+                    AppDelegate.shared?.openCodeReviewPanel()
+                } label: {
+                    Text("Code review")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.primary.opacity(0.06))
+                .cornerRadius(5)
+                .help("Open Code Review (⌘⇧G)")
+
             }
             .frame(height: 28)
             .padding(.top, 2)
