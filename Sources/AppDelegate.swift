@@ -9634,6 +9634,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Code Review: Cmd+Shift+G
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showCodeReview)) {
+            openCodeReviewPanel()
+            return true
+        }
+
         // Safari defaults:
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console
@@ -9866,6 +9872,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         focusBrowserAddressBar(in: panel)
         return true
+    }
+
+    // MARK: - Code Review
+
+    @objc func codeReviewTitlebarButtonClicked() {
+        openCodeReviewPanel()
+    }
+
+    func openCodeReviewPanel() {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId else {
+            NSSound.beep()
+            return
+        }
+
+        // Toggle: if a code review panel exists, close it
+        if let existingId = workspace.panels.first(where: { $0.value is CodeReviewPanel })?.key {
+            _ = workspace.closePanel(existingId)
+            return
+        }
+
+        let gitDirectory = workspace.panelDirectories[focusedPanelId] ?? workspace.currentDirectory
+        _ = workspace.newCodeReviewSplit(
+            from: focusedPanelId,
+            orientation: .horizontal,
+            gitDirectory: gitDirectory
+        )
     }
 
     @discardableResult

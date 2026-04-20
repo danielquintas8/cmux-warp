@@ -427,6 +427,17 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+        case .codeReview:
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+        }
+
+        let codeReviewSnapshot: SessionCodeReviewPanelSnapshot?
+        if let codeReviewPanel = panel as? CodeReviewPanel {
+            codeReviewSnapshot = SessionCodeReviewPanelSnapshot(gitDirectory: codeReviewPanel.gitDirectory)
+        } else {
+            codeReviewSnapshot = nil
         }
 
         return SessionPanelSnapshot(
@@ -442,7 +453,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            codeReview: codeReviewSnapshot
         )
     }
 
@@ -618,6 +630,17 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .codeReview:
+            guard let gitDirectory = snapshot.codeReview?.gitDirectory,
+                  let codeReviewPanel = newCodeReviewSurface(
+                    inPane: paneId,
+                    gitDirectory: gitDirectory,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: codeReviewPanel.id)
+            return codeReviewPanel.id
         }
     }
 
@@ -5293,6 +5316,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+        static let codeReview = "codeReview"
     }
 
     enum PanelShellActivityState: String {
@@ -5728,6 +5752,30 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[markdownPanel.id] = subscription
     }
 
+    private func installCodeReviewPanelSubscription(_ codeReviewPanel: CodeReviewPanel) {
+        let subscription = codeReviewPanel.$displayTitle
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak codeReviewPanel] newTitle in
+                guard let self,
+                      let codeReviewPanel,
+                      let tabId = self.surfaceIdFromPanelId(codeReviewPanel.id) else { return }
+                guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+                if self.panelTitles[codeReviewPanel.id] != newTitle {
+                    self.panelTitles[codeReviewPanel.id] = newTitle
+                }
+                let resolvedTitle = self.resolvedPanelTitle(panelId: codeReviewPanel.id, fallback: newTitle)
+                guard existing.title != resolvedTitle else { return }
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: resolvedTitle,
+                    hasCustomTitle: self.panelCustomTitles[codeReviewPanel.id] != nil
+                )
+            }
+        panelSubscriptions[codeReviewPanel.id] = subscription
+    }
+
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(
@@ -5773,6 +5821,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .codeReview:
+            return SurfaceKind.codeReview
         }
     }
 
@@ -6055,6 +6105,14 @@ final class Workspace: Identifiable, ObservableObject {
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId, currentDirectory != trimmed {
             currentDirectory = trimmed
+        }
+        // Update any Code Review panels to track the focused terminal's directory
+        if panelId == focusedPanelId {
+            for (_, panel) in panels {
+                if let codeReviewPanel = panel as? CodeReviewPanel {
+                    codeReviewPanel.updateDirectory(trimmed)
+                }
+            }
         }
     }
 
@@ -7451,6 +7509,115 @@ final class Workspace: Identifiable, ObservableObject {
 
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
+    }
+
+    // MARK: - Code Review Panel
+
+    @discardableResult
+    func newCodeReviewSurface(
+        inPane paneId: PaneID,
+        gitDirectory: String,
+        focus: Bool? = nil
+    ) -> CodeReviewPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let codeReviewPanel = CodeReviewPanel(workspaceId: id, gitDirectory: gitDirectory)
+        panels[codeReviewPanel.id] = codeReviewPanel
+        panelTitles[codeReviewPanel.id] = codeReviewPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: codeReviewPanel.displayTitle,
+            icon: codeReviewPanel.displayIcon,
+            kind: SurfaceKind.codeReview,
+            isDirty: codeReviewPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: codeReviewPanel.id)
+            panelTitles.removeValue(forKey: codeReviewPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = codeReviewPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: codeReviewPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installCodeReviewPanelSubscription(codeReviewPanel)
+        return codeReviewPanel
+    }
+
+    func newCodeReviewSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        gitDirectory: String,
+        focus: Bool = true
+    ) -> CodeReviewPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        let codeReviewPanel = CodeReviewPanel(workspaceId: id, gitDirectory: gitDirectory)
+        panels[codeReviewPanel.id] = codeReviewPanel
+        panelTitles[codeReviewPanel.id] = codeReviewPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: codeReviewPanel.displayTitle,
+            icon: codeReviewPanel.displayIcon,
+            kind: SurfaceKind.codeReview,
+            isDirty: codeReviewPanel.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = codeReviewPanel.id
+        let previousFocusedPanelId = focusedPanelId
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: codeReviewPanel.id)
+            panelTitles.removeValue(forKey: codeReviewPanel.id)
+            return nil
+        }
+
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(codeReviewPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: codeReviewPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installCodeReviewPanelSubscription(codeReviewPanel)
+        return codeReviewPanel
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
